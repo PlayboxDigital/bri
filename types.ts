@@ -20,6 +20,7 @@ export interface Client {
   monthly_fee: number;
   currency: 'ARS' | 'USD';
   is_active: boolean;
+  has_paid: boolean;
   notes?: string;
   created_at: string;
 }

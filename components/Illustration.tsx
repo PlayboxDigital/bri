@@ -12,40 +12,38 @@ export const HappyWallet: React.FC<{ size?: number }> = ({ size = 100 }) => (
   </svg>
 );
 
-export const PiggyBank: React.FC<{ size?: number }> = ({ size = 100 }) => (
-  <svg width={size} height={size} viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+export const PiggyBank: React.FC<{ size?: number; opacity?: number }> = ({ size = 100, opacity = 1 }) => (
+  <svg width={size} height={size} viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ opacity }}>
     {/* Patas */}
-    <rect x="35" y="72" width="10" height="15" rx="5" fill="#E1AFD1" fillOpacity="0.6" />
-    <rect x="55" y="72" width="10" height="15" rx="5" fill="#E1AFD1" fillOpacity="0.6" />
+    <rect x="33" y="75" width="12" height="18" rx="6" fill="#F472B6" fillOpacity="0.4" />
+    <rect x="55" y="75" width="12" height="18" rx="6" fill="#F472B6" fillOpacity="0.4" />
     
     {/* Cuerpo */}
-    <circle cx="50" cy="50" r="38" fill="url(#piggyGradient)" />
-    <circle cx="50" cy="50" r="38" stroke="#E1AFD1" strokeWidth="0.5" strokeDasharray="4 4" />
+    <ellipse cx="50" cy="52" rx="42" ry="38" fill="url(#piggyGradient)" />
+    <ellipse cx="50" cy="52" rx="42" ry="38" stroke="#F472B6" strokeWidth="0.5" strokeDasharray="3 3" />
     
     {/* Orejas */}
-    <path d="M22 30 L15 12 L35 18 Z" fill="#FFE6E6" stroke="#E1AFD1" strokeWidth="1" strokeLinejoin="round" />
-    <path d="M78 30 L85 12 L65 18 Z" fill="#FFE6E6" stroke="#E1AFD1" strokeWidth="1" strokeLinejoin="round" />
+    <path d="M25 32 L15 10 L40 20 Z" fill="#FFE4E6" stroke="#FDA4AF" strokeWidth="1" strokeLinejoin="round" />
+    <path d="M75 32 L85 10 L60 20 Z" fill="#FFE4E6" stroke="#FDA4AF" strokeWidth="1" strokeLinejoin="round" />
     
-    {/* Ojos - Más minimalistas */}
-    <circle cx="40" cy="45" r="2" fill="#475569" />
-    <circle cx="60" cy="45" r="2" fill="#475569" />
-    
-    {/* Mejillas - Muy suaves */}
-    <circle cx="32" cy="52" r="6" fill="#E1AFD1" fillOpacity="0.2" />
-    <circle cx="68" cy="52" r="6" fill="#E1AFD1" fillOpacity="0.2" />
+    {/* Ojos */}
+    <circle cx="38" cy="48" r="2.5" fill="#1E293B" />
+    <circle cx="62" cy="48" r="2.5" fill="#1E293B" />
+    <circle cx="39" cy="47" r="0.8" fill="white" />
+    <circle cx="63" cy="47" r="0.8" fill="white" />
     
     {/* Hocico */}
-    <rect x="42" y="52" width="16" height="12" rx="6" fill="#E1AFD1" fillOpacity="0.7" />
-    <circle cx="47" cy="58" r="1.2" fill="white" fillOpacity="0.8" />
-    <circle cx="53" cy="58" r="1.2" fill="white" fillOpacity="0.8" />
+    <rect x="42" y="55" width="16" height="14" rx="7" fill="#F472B6" fillOpacity="0.6" />
+    <circle cx="47" cy="62" r="1.5" fill="white" fillOpacity="0.9" />
+    <circle cx="53" cy="62" r="1.5" fill="white" fillOpacity="0.9" />
     
-    {/* Ranura con brillo */}
-    <rect x="42" y="22" width="16" height="2.5" rx="1" fill="#475569" fillOpacity="0.1" />
+    {/* Brillo en el cuerpo */}
+    <path d="M25 40 Q30 30 50 30" stroke="white" strokeWidth="2" strokeLinecap="round" strokeOpacity="0.3" />
 
     <defs>
-      <linearGradient id="piggyGradient" x1="50" y1="12" x2="50" y2="88" gradientUnits="userSpaceOnUse">
-        <stop offset="0%" stopColor="#FFF5F5" />
-        <stop offset="100%" stopColor="#FFE6E6" />
+      <linearGradient id="piggyGradient" x1="50" y1="14" x2="50" y2="90" gradientUnits="userSpaceOnUse">
+        <stop offset="0%" stopColor="#FFF1F2" />
+        <stop offset="100%" stopColor="#FFE4E6" />
       </linearGradient>
     </defs>
   </svg>
