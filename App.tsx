@@ -13,26 +13,25 @@ import {
 const App: React.FC = () => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
-  // Meta obligatoria de 3.000.000
   const [goal, setGoal] = useState({ target_amount: 3000000, title: 'Ganancia Mensual' });
-  const [viewMode, setViewMode] = useState<'month' | 'year'>('month');
-  const [usdRate, setUsdRate] = useState<number>(1200); 
   const [vaultTotal, setVaultTotal] = useState<number>(0); 
   const [vaultInput, setVaultInput] = useState<string>('');
   
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'history' | 'clients'>('dashboard');
+  const [usdRate, setUsdRate] = useState<number>(1200);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSavingVault, setIsSavingVault] = useState(false);
+  const [lastSync, setLastSync] = useState<string | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [aiInsight, setAiInsight] = useState<string | null>(null);
+
+  // Form states
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
   const [type, setType] = useState<TransactionType>(TransactionType.EXPENSE);
   const [category, setCategory] = useState('others');
-  
   const [newClientName, setNewClientName] = useState('');
   const [newClientFee, setNewClientFee] = useState('');
-
-  const [aiInsight, setAiInsight] = useState<string | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'history' | 'clients'>('dashboard');
-  const [clientFilter, setClientFilter] = useState<'all' | 'paid' | 'pending'>('all');
-  const [isLoading, setIsLoading] = useState(true);
 
   const getPaymentKey = () => {
     const d = new Date();
@@ -50,10 +49,7 @@ const App: React.FC = () => {
         setIsLoading(false);
       }
     };
-
     initApp();
-    const savedVault = localStorage.getItem('geta_vault_total');
-    if (savedVault) setVaultTotal(Number(savedVault));
   }, []);
 
   const fetchUsdRate = async () => {
@@ -73,26 +69,37 @@ const App: React.FC = () => {
     try {
       const results = await Promise.allSettled([
         supabase.from('transactions').select('*').order('date', { ascending: false }),
-        supabase.from('goals').select('*').maybeSingle(),
+        supabase.from('goals').select('*'),
         supabase.from('clients').select('*').order('created_at', { ascending: true })
       ]);
 
       const transRes = results[0].status === 'fulfilled' ? results[0].value : null;
-      const goalRes = results[1].status === 'fulfilled' ? results[1].value : null;
+      const goalsRes = results[1].status === 'fulfilled' ? results[1].value : null;
       const clientsRes = results[2].status === 'fulfilled' ? results[2].value : null;
 
       if (transRes?.data) setTransactions(transRes.data);
-      // Solo sobreescribir si la meta de la DB es válida, sino mantener los 3M
-      if (goalRes?.data && goalRes.data.target_amount >= 1000000) setGoal(goalRes.data);
+      
+      if (goalsRes?.data) {
+        const monthlyGoal = goalsRes.data.find((g: any) => g.title === 'Ganancia Mensual');
+        if (monthlyGoal) setGoal(monthlyGoal);
+
+        const vaultGoal = goalsRes.data.find((g: any) => g.title === 'Vault');
+        if (vaultGoal) {
+          setVaultTotal(vaultGoal.target_amount);
+          setLastSync(new Date().toLocaleTimeString());
+        } else {
+          const savedVault = localStorage.getItem('geta_vault_total');
+          if (savedVault) setVaultTotal(Number(savedVault));
+        }
+      }
       
       if (clientsRes?.data) {
         const key = getPaymentKey();
         const localPayments = JSON.parse(localStorage.getItem(key) || '{}');
-        const mergedClients = clientsRes.data.map((c: any) => ({
+        setClients(clientsRes.data.map((c: any) => ({
           ...c,
           has_paid: !!localPayments[c.id]
-        }));
-        setClients(mergedClients);
+        })));
       }
     } catch (err) {
       console.error("Error cargando datos:", err);
@@ -101,12 +108,49 @@ const App: React.FC = () => {
     }
   };
 
+  const handleVaultOperation = async (op: 'sum' | 'sub') => {
+    const val = parseFloat(vaultInput);
+    if (isNaN(val) || val <= 0) return;
+    
+    const newTotal = op === 'sum' ? vaultTotal + val : Math.max(0, vaultTotal - val);
+    
+    // UI Update inmediata
+    setVaultTotal(newTotal);
+    setVaultInput('');
+    setIsSavingVault(true);
+    localStorage.setItem('geta_vault_total', newTotal.toString());
+
+    try {
+      // Usamos upsert con onConflict si existe la constraint, o una lógica de actualización manual
+      const { error } = await supabase
+        .from('goals')
+        .upsert({ title: 'Vault', target_amount: newTotal }, { onConflict: 'title' });
+      
+      if (error) throw error;
+      setLastSync(new Date().toLocaleTimeString());
+    } catch (e) {
+      console.error("Error sincronizando bóveda:", e);
+    } finally {
+      setIsSavingVault(false);
+    }
+  };
+
+  const togglePaidStatus = (client: Client) => {
+    const newPaidStatus = !client.has_paid;
+    setClients(prev => prev.map(c => c.id === client.id ? { ...c, has_paid: newPaidStatus } : c));
+    
+    const key = getPaymentKey();
+    const localPayments = JSON.parse(localStorage.getItem(key) || '{}');
+    if (newPaidStatus) localPayments[client.id] = true;
+    else delete localPayments[client.id];
+    localStorage.setItem(key, JSON.stringify(localPayments));
+  };
+
   const summary = useMemo(() => {
-    const totals = (transactions || []).reduce((acc, curr) => {
+    const totals = transactions.reduce((acc, curr) => {
       const tDate = new Date(curr.date);
       const now = new Date();
       if (tDate.getMonth() !== now.getMonth() || tDate.getFullYear() !== now.getFullYear()) return acc;
-
       let val = Number(curr.amount);
       const isUSD = curr.description.toLowerCase().includes('(usd)');
       const valInArs = isUSD ? val * usdRate : val;
@@ -122,28 +166,8 @@ const App: React.FC = () => {
         return acc + (client.currency === 'USD' ? fee * usdRate : fee);
       }, 0);
 
-    return {
-      ...totals,
-      projectedIncome,
-      projectedBalance: projectedIncome - totals.totalExpenseArs
-    };
+    return { ...totals, projectedIncome, projectedBalance: projectedIncome - totals.totalExpenseArs };
   }, [transactions, clients, usdRate]);
-
-  const chartData = useMemo(() => {
-    const data: Record<string, number> = {};
-    const now = new Date();
-    transactions.forEach(t => {
-      const tDate = new Date(t.date);
-      if (tDate.getMonth() === now.getMonth() && t.type === TransactionType.EXPENSE) {
-        const catName = CATEGORIES.find(c => c.id === t.category)?.name || 'Otros';
-        const isUSD = t.description.toLowerCase().includes('(usd)');
-        const valInArs = isUSD ? Number(t.amount) * usdRate : Number(t.amount);
-        data[catName] = (data[catName] || 0) + valInArs;
-      }
-    });
-    const results = Object.entries(data).map(([name, value]) => ({ name, value }));
-    return results.length > 0 ? results : [{ name: 'Sin gastos', value: 0 }];
-  }, [transactions, usdRate]);
 
   const targetAmount = goal.target_amount;
   const earningsProgress = Math.min(Math.round((summary.projectedIncome / targetAmount) * 100), 100);
@@ -153,75 +177,57 @@ const App: React.FC = () => {
   const handleAddTransaction = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!description || !amount) return;
-    const newRow = { 
-      description, 
-      amount: parseFloat(amount), 
-      date: new Date().toISOString().split('T')[0], 
-      type, 
-      category 
-    };
-    const { error } = await supabase.from('transactions').insert([newRow]);
-    if (error) alert("Revisa la conexión");
-    else {
-      setDescription(''); setAmount('');
-      fetchData(true);
-    }
+    const { error } = await supabase.from('transactions').insert([{ 
+      description, amount: parseFloat(amount), date: new Date().toISOString().split('T')[0], type, category 
+    }]);
+    if (!error) { setDescription(''); setAmount(''); fetchData(true); }
   };
 
   const handleAddClient = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newClientName || !newClientFee) return;
-    const payload = {
-      name: newClientName,
-      monthly_fee: parseFloat(newClientFee),
-      currency: 'ARS',
-      is_active: true
-    };
-    const { error } = await supabase.from('clients').insert([payload]);
-    if (error) alert("Error al guardar cliente");
-    else {
-      setNewClientName(''); setNewClientFee('');
-      fetchData(true);
-    }
-  };
-
-  const handleVaultOperation = (op: 'sum' | 'sub') => {
-    const val = parseFloat(vaultInput);
-    if (isNaN(val) || val <= 0) return;
-    setVaultTotal(current => {
-      const updated = op === 'sum' ? current + val : Math.max(0, current - val);
-      localStorage.setItem('geta_vault_total', updated.toString());
-      return updated;
-    });
-    setVaultInput('');
+    const { error } = await supabase.from('clients').insert([{
+      name: newClientName, monthly_fee: parseFloat(newClientFee), currency: 'ARS', is_active: true
+    }]);
+    if (!error) { setNewClientName(''); setNewClientFee(''); fetchData(true); }
   };
 
   return (
     <div className="min-h-screen pb-12 flex flex-col bg-[#FCFBFE] text-slate-700 overflow-x-hidden">
       <header className="bg-white/95 backdrop-blur-xl border-b border-purple-50 px-4 py-4 sm:py-5 sticky top-0 z-50 shadow-sm">
-        <div className="max-w-5xl mx-auto space-y-4 sm:space-y-5">
+        <div className="max-w-5xl mx-auto space-y-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 sm:gap-3">
-              <div className="bg-gradient-to-br from-purple-400 to-rose-300 w-8 h-8 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center shadow-lg shadow-purple-100">
-                <span className="text-white font-black text-sm sm:text-lg">B</span>
+            <div className="flex items-center gap-3">
+              <div className="bg-gradient-to-br from-purple-400 to-rose-300 w-9 h-9 rounded-xl flex items-center justify-center shadow-lg shadow-purple-100">
+                <span className="text-white font-black text-lg">B</span>
               </div>
               <div>
-                <h1 className="text-sm sm:text-base font-black tracking-tight text-slate-800 leading-none">Finanzas <span className="text-purple-400 italic">Brisa</span></h1>
-                <p className="text-[7px] sm:text-[9px] font-black text-slate-300 uppercase tracking-widest mt-1">Panel de Control</p>
+                <h1 className="text-sm sm:text-base font-black text-slate-800 leading-none">Finanzas <span className="text-purple-400 italic">Brisa</span></h1>
+                <p className="text-[7px] font-black text-slate-300 uppercase tracking-widest mt-1">Geta Premium</p>
               </div>
             </div>
-            <div className="flex items-center gap-2 sm:gap-3">
-              <div className="flex flex-col items-end px-2 sm:px-3 border-r border-slate-100">
-                <span className="text-[6px] sm:text-[7px] font-black text-slate-300 uppercase tracking-widest">Dólar</span>
-                <span className="text-[10px] sm:text-[11px] font-bold text-purple-400">${usdRate}</span>
+            <div className="flex items-center gap-2">
+              <div className="flex flex-col items-end px-2 border-r border-slate-100">
+                <span className="text-[7px] font-black text-slate-300 uppercase tracking-widest">Dólar</span>
+                <span className="text-[10px] font-bold text-purple-400">${usdRate}</span>
               </div>
-              <button onClick={() => analyzeFinances(transactions).then(setAiInsight)} className="bg-slate-800 text-white px-3 sm:px-4 py-2 rounded-full text-[8px] sm:text-[9px] font-black uppercase tracking-widest">✨ BrisaBot</button>
+              <button 
+                onClick={() => { setIsAnalyzing(true); analyzeFinances(transactions).then(res => { setAiInsight(res); setIsAnalyzing(false); }); }}
+                disabled={isAnalyzing}
+                className="bg-slate-800 text-white px-3 py-2 rounded-full text-[8px] font-black uppercase tracking-widest hover:bg-slate-700 active:scale-95 transition-all disabled:opacity-50"
+              >{isAnalyzing ? '...' : '✨ IA'}</button>
             </div>
           </div>
           <nav className="flex bg-slate-100/80 p-1 rounded-2xl w-full sm:w-fit overflow-x-auto no-scrollbar">
-            <button onClick={() => setActiveTab('dashboard')} className={`flex-1 sm:flex-none px-6 py-2.5 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${activeTab === 'dashboard' ? 'bg-white text-purple-500 shadow-sm' : 'text-slate-400'}`}>Inicio</button>
-            <button onClick={() => setActiveTab('history')} className={`flex-1 sm:flex-none px-6 py-2.5 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${activeTab === 'history' ? 'bg-white text-purple-500 shadow-sm' : 'text-slate-400'}`}>Movimientos</button>
-            <button onClick={() => setActiveTab('clients')} className={`flex-1 sm:flex-none px-6 py-2.5 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${activeTab === 'clients' ? 'bg-white text-purple-500 shadow-sm' : 'text-slate-400'}`}>Clientes</button>
+            {['dashboard', 'history', 'clients'].map((tab) => (
+              <button 
+                key={tab}
+                onClick={() => setActiveTab(tab as any)} 
+                className={`flex-1 sm:flex-none px-6 py-2.5 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${activeTab === tab ? 'bg-white text-purple-500 shadow-sm' : 'text-slate-400'}`}
+              >
+                {tab === 'dashboard' ? 'Inicio' : tab === 'history' ? 'Movimientos' : 'Clientes'}
+              </button>
+            ))}
           </nav>
         </div>
       </header>
@@ -230,13 +236,20 @@ const App: React.FC = () => {
         {isLoading ? (
           <div className="flex flex-col items-center justify-center py-32">
             <div className="w-10 h-10 border-4 border-purple-100 border-t-purple-400 rounded-full animate-spin mb-6" />
-            <p className="text-slate-300 text-[10px] font-black uppercase tracking-widest">Cargando Bóveda...</p>
+            <p className="text-slate-300 text-[10px] font-black uppercase tracking-widest">Sincronizando Bóveda...</p>
           </div>
         ) : (
           <div className="space-y-6 sm:space-y-10">
+            {aiInsight && (
+              <div className="bg-white p-5 rounded-[24px] border border-purple-50 relative animate-in fade-in slide-in-from-top-4 shadow-sm">
+                <button onClick={() => setAiInsight(null)} className="absolute top-4 right-4 text-slate-300 text-xs">✕</button>
+                <p className="text-slate-600 text-xs sm:text-sm leading-relaxed italic pr-6">"{aiInsight}"</p>
+              </div>
+            )}
+
             {activeTab === 'dashboard' && (
-              <div className="animate-in fade-in duration-700">
-                <section className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mb-10">
+              <div className="animate-in fade-in duration-700 space-y-8">
+                <section className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className="bg-white p-6 rounded-[32px] border border-purple-50 shadow-sm">
                     <p className="text-slate-400 text-[8px] font-black uppercase mb-3">Balance Proyectado</p>
                     <h3 className="text-3xl font-black text-slate-800">${Math.round(summary.projectedBalance).toLocaleString()}</h3>
@@ -251,16 +264,23 @@ const App: React.FC = () => {
                   </div>
                 </section>
 
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
-                  <div className="lg:col-span-7 space-y-10">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                  <div className="lg:col-span-7">
                     <div className="bg-gradient-to-br from-[#FFF9FD] to-[#F5F1FF] p-6 sm:p-10 rounded-[40px] border border-white shadow-xl shadow-purple-100/40 relative overflow-hidden group">
                       <div className="absolute -bottom-10 -right-10 opacity-30 pointer-events-none group-hover:scale-110 transition-transform duration-700">
                         <PiggyBank size={300} />
                       </div>
                       <div className="relative z-10">
-                        <h4 className="font-black uppercase text-[10px] text-purple-400 flex items-center gap-2 tracking-[0.2em] mb-8">
-                          <Sparkles className="w-4 h-4" /> Mi Bóveda Personal
-                        </h4>
+                        <div className="flex items-center justify-between mb-8">
+                          <h4 className="font-black uppercase text-[10px] text-purple-400 flex items-center gap-2 tracking-[0.2em]">
+                            <Sparkles className="w-4 h-4" /> Mi Bóveda Personal
+                          </h4>
+                          {isSavingVault ? (
+                            <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest animate-pulse">Sincronizando...</span>
+                          ) : lastSync && (
+                            <span className="text-[8px] font-black text-emerald-400 uppercase tracking-widest flex items-center gap-1">✨ Nube OK ({lastSync})</span>
+                          )}
+                        </div>
                         <div className="mb-10">
                           <p className="text-slate-400 text-[8px] font-black uppercase tracking-widest mb-1">Ahorro Disponible</p>
                           <h2 className="text-5xl sm:text-7xl font-black text-slate-800 tracking-tighter">
@@ -269,10 +289,17 @@ const App: React.FC = () => {
                           </h2>
                         </div>
                         <div className="flex gap-3 items-center bg-white/60 backdrop-blur-md p-4 rounded-[28px] border border-white shadow-sm max-w-sm">
-                          <input type="number" value={vaultInput} onChange={e => setVaultInput(e.target.value)} placeholder="0.00" className="flex-1 bg-transparent outline-none font-black text-slate-800 text-lg px-2" />
-                          <button onClick={() => handleVaultOperation('sum')} className="w-12 h-12 bg-purple-400 text-white rounded-2xl font-black text-xl shadow-lg">+</button>
-                          <button onClick={() => handleVaultOperation('sub')} className="w-12 h-12 bg-white text-rose-400 rounded-2xl font-black text-xl border border-rose-50 shadow-sm">-</button>
+                          <input 
+                            type="number" 
+                            value={vaultInput} 
+                            onChange={e => setVaultInput(e.target.value)} 
+                            placeholder="0.00" 
+                            className="flex-1 bg-transparent outline-none font-black text-slate-800 text-lg px-2" 
+                          />
+                          <button onClick={() => handleVaultOperation('sum')} className="w-12 h-12 bg-purple-400 text-white rounded-2xl font-black text-xl shadow-lg active:scale-90 hover:bg-purple-500 transition-all">+</button>
+                          <button onClick={() => handleVaultOperation('sub')} className="w-12 h-12 bg-white text-rose-400 rounded-2xl font-black text-xl border border-rose-50 shadow-sm active:scale-90 hover:bg-rose-50 transition-all">-</button>
                         </div>
+                        <p className="text-[7px] font-black text-purple-300 uppercase tracking-widest mt-6 italic">☁️ Guardado automático en tu cuenta de Supabase</p>
                       </div>
                     </div>
                   </div>
@@ -287,7 +314,7 @@ const App: React.FC = () => {
                       <div className="bg-slate-50 p-5 rounded-3xl border border-slate-100">
                         <p className="text-[10px] font-bold text-slate-400 mb-1">Faltan:</p>
                         <p className="text-rose-400 font-black text-2xl tracking-tight">${amountMissing.toLocaleString()}</p>
-                        <p className="text-[8px] font-black text-purple-400 uppercase tracking-widest mt-4">Aproximadamente {clientsNeeded} clientes más</p>
+                        <p className="text-[8px] font-black text-purple-400 uppercase tracking-widest mt-4">{clientsNeeded} clientes más para el objetivo</p>
                       </div>
                     </div>
                   </div>
@@ -297,34 +324,48 @@ const App: React.FC = () => {
 
             {activeTab === 'clients' && (
               <div className="animate-in slide-in-from-right-4 duration-500">
-                <div className="bg-white p-6 sm:p-10 rounded-[40px] border border-slate-50 shadow-sm mb-10">
+                <div className="bg-white p-8 rounded-[40px] border border-slate-50 shadow-sm mb-10">
                   <h3 className="font-black text-slate-800 text-xl mb-8">Gestión de Clientes</h3>
                   <form onSubmit={handleAddClient} className="flex flex-col sm:flex-row gap-4">
                     <input type="text" required value={newClientName} onChange={e => setNewClientName(e.target.value)} placeholder="Nombre del Cliente" className="flex-1 bg-slate-50 p-4 rounded-2xl outline-none font-bold text-sm" />
                     <input type="number" required value={newClientFee} onChange={e => setNewClientFee(e.target.value)} placeholder="Cuota Mensual" className="sm:w-48 bg-slate-50 p-4 rounded-2xl outline-none font-bold text-sm" />
-                    <button type="submit" className="bg-purple-400 text-white font-black px-10 py-4 rounded-2xl uppercase text-[10px] tracking-widest">Añadir</button>
+                    <button type="submit" className="bg-purple-400 text-white font-black px-10 py-4 rounded-2xl uppercase text-[10px] tracking-widest hover:bg-purple-500 transition-all">Añadir</button>
                   </form>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {clients.map(client => (
-                    <div key={client.id} className="bg-white p-8 rounded-[40px] border border-slate-50 shadow-sm relative group">
+                    <div key={client.id} className="bg-white p-8 rounded-[40px] border border-slate-50 shadow-sm relative group overflow-hidden">
                       <div className="flex justify-between items-start mb-6">
                         <div>
                           <h4 className="font-black text-slate-800 text-lg">{client.name}</h4>
                           <p className="text-purple-400 font-black text-sm mt-1">ARS$ {Number(client.monthly_fee).toLocaleString()}</p>
                         </div>
-                        <button onClick={() => supabase.from('clients').delete().eq('id', client.id).then(() => fetchData(true))} className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-rose-400 transition-all">🗑️</button>
+                        <button onClick={() => supabase.from('clients').delete().eq('id', client.id).then(() => fetchData(true))} className="text-slate-300 hover:text-rose-400 p-2 transition-colors">🗑️</button>
                       </div>
-                      <button className="w-full bg-slate-50 p-4 rounded-2xl text-[10px] font-black text-slate-400 uppercase tracking-widest hover:bg-emerald-50 hover:text-emerald-500 transition-all">Marcar Pago del Mes</button>
+                      <button 
+                        onClick={() => togglePaidStatus(client)}
+                        className={`w-full p-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                          client.has_paid 
+                          ? 'bg-emerald-400 text-white shadow-lg shadow-emerald-100' 
+                          : 'bg-slate-50 text-slate-400 border border-slate-100 hover:bg-emerald-50 hover:text-emerald-500'
+                        }`}
+                      >
+                        {client.has_paid ? '✅ Pagado este Mes' : 'Marcar Pago del Mes'}
+                      </button>
                     </div>
                   ))}
+                  {clients.length === 0 && (
+                    <div className="col-span-full py-20 text-center bg-slate-50 rounded-[40px] border-2 border-dashed border-slate-200">
+                      <p className="text-slate-300 font-bold uppercase text-[10px] tracking-[0.2em]">No hay clientes registrados ✨</p>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
 
             {activeTab === 'history' && (
               <div className="animate-in zoom-in-95 duration-500 space-y-6">
-                <div className="bg-white p-6 sm:p-10 rounded-[40px] border border-slate-50 shadow-sm">
+                <div className="bg-white p-8 rounded-[40px] border border-slate-50 shadow-sm">
                   <h3 className="font-black text-slate-800 text-xl mb-8">Registrar Movimiento</h3>
                   <form onSubmit={handleAddTransaction} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <input type="text" required value={description} onChange={e => setDescription(e.target.value)} placeholder="Descripción" className="sm:col-span-2 bg-slate-50 p-4 rounded-2xl outline-none font-bold text-sm" />
@@ -333,13 +374,19 @@ const App: React.FC = () => {
                       <option value="expense">📉 Gasto</option>
                       <option value="income">📈 Ingreso</option>
                     </select>
-                    <button type="submit" className="sm:col-span-2 bg-slate-800 text-white font-black py-5 rounded-2xl uppercase text-[10px] tracking-widest">Guardar Movimiento</button>
+                    <button type="submit" className="sm:col-span-2 bg-slate-800 text-white font-black py-5 rounded-2xl uppercase text-[10px] tracking-widest hover:bg-slate-700 transition-all">Guardar Movimiento</button>
                   </form>
                 </div>
                 <div className="space-y-4">
-                  {transactions.slice(0, 15).map(t => (
-                    <TransactionCard key={t.id} transaction={t} onDelete={() => supabase.from('transactions').delete().eq('id', t.id).then(() => fetchData(true))} />
-                  ))}
+                  {transactions.length > 0 ? (
+                    transactions.map(t => (
+                      <TransactionCard key={t.id} transaction={t} onDelete={() => supabase.from('transactions').delete().eq('id', t.id).then(() => fetchData(true))} />
+                    ))
+                  ) : (
+                    <div className="py-20 text-center">
+                      <p className="text-slate-300 font-bold uppercase text-[10px] tracking-[0.2em]">Aún no hay movimientos registrados ✨</p>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
