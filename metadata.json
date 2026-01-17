@@ -1,6 +1,14 @@
 {
   "name": "Finanzas Brisa",
-  "description": "Una aplicación moderna y amigable para gestionar tus finanzas personales, ingresos y gastos con el poder de la IA de Gemini.",
+  "short_name": "Brisa Finanzas",
+  "description": "Tu aplicación personal para gestionar ingresos y gastos de forma moderna.",
+  "icons": [
+    {
+      "src": "https://res.cloudinary.com/ddbqqeh8x/image/upload/v1768665571/Captura_de_pantalla_2026-01-17_125644_lxz4l4.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
   "requestFramePermissions": [
     "camera"
   ]

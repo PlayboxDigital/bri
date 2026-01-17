@@ -121,7 +121,6 @@ const App: React.FC = () => {
     localStorage.setItem('geta_vault_total', newTotal.toString());
 
     try {
-      // Usamos upsert con onConflict si existe la constraint, o una lógica de actualización manual
       const { error } = await supabase
         .from('goals')
         .upsert({ title: 'Vault', target_amount: newTotal }, { onConflict: 'title' });
@@ -198,12 +197,12 @@ const App: React.FC = () => {
         <div className="max-w-5xl mx-auto space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="bg-gradient-to-br from-purple-400 to-rose-300 w-9 h-9 rounded-xl flex items-center justify-center shadow-lg shadow-purple-100">
-                <span className="text-white font-black text-lg">B</span>
+              <div className="w-10 h-10 rounded-xl overflow-hidden shadow-lg shadow-purple-100 flex items-center justify-center bg-white border border-purple-50">
+                <img src="https://res.cloudinary.com/ddbqqeh8x/image/upload/v1768665571/Captura_de_pantalla_2026-01-17_125644_lxz4l4.png" alt="Logo" className="w-full h-full object-cover" />
               </div>
               <div>
                 <h1 className="text-sm sm:text-base font-black text-slate-800 leading-none">Finanzas <span className="text-purple-400 italic">Brisa</span></h1>
-                <p className="text-[7px] font-black text-slate-300 uppercase tracking-widest mt-1">Geta Premium</p>
+                <p className="text-[7px] font-black text-slate-300 uppercase tracking-widest mt-1">Brisa Premium ✨</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -299,14 +298,13 @@ const App: React.FC = () => {
                           <button onClick={() => handleVaultOperation('sum')} className="w-12 h-12 bg-purple-400 text-white rounded-2xl font-black text-xl shadow-lg active:scale-90 hover:bg-purple-500 transition-all">+</button>
                           <button onClick={() => handleVaultOperation('sub')} className="w-12 h-12 bg-white text-rose-400 rounded-2xl font-black text-xl border border-rose-50 shadow-sm active:scale-90 hover:bg-rose-50 transition-all">-</button>
                         </div>
-                        <p className="text-[7px] font-black text-purple-300 uppercase tracking-widest mt-6 italic">☁️ Guardado automático en tu cuenta de Supabase</p>
                       </div>
                     </div>
                   </div>
 
                   <div className="lg:col-span-5">
                     <div className="bg-white p-8 rounded-[40px] border border-purple-50 h-full shadow-sm">
-                      <h4 className="text-purple-400 font-black uppercase text-[9px] mb-8 tracking-widest">Meta Brisa</h4>
+                      <h4 className="text-purple-400 font-black uppercase text-[9px] mb-8 tracking-widest">Meta de Brisa</h4>
                       <p className="text-4xl font-black text-slate-800 tracking-tighter mb-6">${targetAmount.toLocaleString()}</p>
                       <div className="w-full bg-slate-100 rounded-full h-3 mb-10 overflow-hidden">
                         <div className="bg-purple-400 h-full transition-all duration-1000" style={{ width: `${earningsProgress}%` }} />
@@ -354,11 +352,6 @@ const App: React.FC = () => {
                       </button>
                     </div>
                   ))}
-                  {clients.length === 0 && (
-                    <div className="col-span-full py-20 text-center bg-slate-50 rounded-[40px] border-2 border-dashed border-slate-200">
-                      <p className="text-slate-300 font-bold uppercase text-[10px] tracking-[0.2em]">No hay clientes registrados ✨</p>
-                    </div>
-                  )}
                 </div>
               </div>
             )}
@@ -378,15 +371,9 @@ const App: React.FC = () => {
                   </form>
                 </div>
                 <div className="space-y-4">
-                  {transactions.length > 0 ? (
-                    transactions.map(t => (
-                      <TransactionCard key={t.id} transaction={t} onDelete={() => supabase.from('transactions').delete().eq('id', t.id).then(() => fetchData(true))} />
-                    ))
-                  ) : (
-                    <div className="py-20 text-center">
-                      <p className="text-slate-300 font-bold uppercase text-[10px] tracking-[0.2em]">Aún no hay movimientos registrados ✨</p>
-                    </div>
-                  )}
+                  {transactions.map(t => (
+                    <TransactionCard key={t.id} transaction={t} onDelete={() => supabase.from('transactions').delete().eq('id', t.id).then(() => fetchData(true))} />
+                  ))}
                 </div>
               </div>
             )}
